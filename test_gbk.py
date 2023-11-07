@@ -12,11 +12,6 @@ from apache_beam.runners.dask.transform_evaluator import Create as DaskCreate, O
 from apache_beam.testing import test_pipeline
 from apache_beam.testing.util import assert_that, equal_to
 
-# next steps:
-#    patch string keys with unpartitioned create
-#    show the way that assert_that doesn't work for basic things
-#    but it does with unpartitioned create
-
 runners = ["DirectRunner", DaskRunner()]
 runner_ids = ["DirectRunner", "DaskRunner"]
 

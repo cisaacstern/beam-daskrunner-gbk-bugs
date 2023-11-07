@@ -30,7 +30,7 @@ jobs:
          run: |
             python -m pip install --upgrade pip
             echo installing beam@${{ matrix.beam-version }}
-            python -m pip install "apache-beam==2.51.0"
+            python -m pip install "apache-beam==${{ matrix.beam-version }}"
             python -m pip install -U "git+https://github.com/dask/distributed@2022.6.0"
             python -m pip install pytest
        - name: 🐍 List env
