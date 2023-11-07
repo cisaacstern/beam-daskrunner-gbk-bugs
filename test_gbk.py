@@ -20,64 +20,77 @@ from apache_beam.testing.util import assert_that, equal_to
 runners = ["DirectRunner", DaskRunner()]
 runner_ids = ["DirectRunner", "DaskRunner"]
 
+str_keys = (
+    [("a", 0), ("a", 1), ("b", 2), ("b", 3)],
+    [("a", [0, 1]), ("b", [2, 3])],
+)
+int_keys = (
+    [(0, 0), (0, 1), (1, 2), (1, 3)],
+    [(0, [0, 1]), (1, [2, 3])],
+)
+none_keys = (
+    [(None, 0), (None, 1), (None, 2), (None, 3)],
+    [(None, [0, 1, 2, 3])],
+)
+params = [str_keys, int_keys, none_keys]
+ids = ["str_keys", "int_keys", "none_keys"]
+
 
 class UnpartitionedCreate(DaskCreate):
     def apply(self, input_bag: OpInput) -> db.Bag:
         partitioned = super().apply(input_bag)
         return partitioned.repartition(npartitions=1)
+    
+
+TRANSLATIONS_WITH_UNPARTITIONED_DASK_BAG = TRANSLATIONS.copy()
+TRANSLATIONS_WITH_UNPARTITIONED_DASK_BAG[_Create] = UnpartitionedCreate
 
 
-def json_dump(element, tmpdir: pathlib.Path):
+def serialize_pcoll_elementwise_to_json(element, tmpdir: pathlib.Path):
     with (tmpdir / f"{secrets.token_hex(16)}.json").open(mode="w") as f:
         json.dump(element, f)
 
 
-@pytest.mark.parametrize(
-    "collection, expected_gbk",
-    [
-        (
-            [("a", 0), ("a", 1), ("b", 2), ("b", 3)],
-            [("a", [0, 1]), ("b", [2, 3])],
-        ),
-        (
-            [(0, 0), (0, 1), (1, 2), (1, 3)],
-            [(0, [0, 1]), (1, [2, 3])],
-        ),
-        (
-            [(None, 0), (None, 1), (None, 2), (None, 3)],
-            [(None, [0, 1, 2, 3])],
-        ),
-    ],
-    ids=["str_keys", "int_keys", "none_keys"],
-)
-@pytest.mark.parametrize("runner", runners, ids=runner_ids)
-def test_gbk(
-    runner,
-    collection: list[tuple],
-    expected_gbk: list[tuple],
-    tmp_path_factory: pytest.TempPathFactory,
-):
-
-    tmpdir = tmp_path_factory.mktemp("tmp")
-
-    NEW_TRANSLATIONS = TRANSLATIONS.copy()
-    NEW_TRANSLATIONS[_Create] = UnpartitionedCreate
-    with patch("apache_beam.runners.dask.dask_runner.TRANSLATIONS", NEW_TRANSLATIONS) as nt:
-        with test_pipeline.TestPipeline(runner=runner) as p:
-            pcoll = p | beam.Create(collection) | beam.GroupByKey()
-            pcoll | beam.Map(json_dump, tmpdir=tmpdir)
-
-        for k in NEW_TRANSLATIONS:
-            if not k == _Create:
-                assert NEW_TRANSLATIONS[k] == TRANSLATIONS[k]
-            else:
-                assert NEW_TRANSLATIONS[k] == UnpartitionedCreate
-
+def assert_against_json_serialized_pcoll(tmpdir: pathlib.Path, expected: list):
     global_window = []
     for fname in tmpdir.iterdir():
         with open(fname) as f:
             global_window.append(tuple(json.load(f)))
 
-    assert len(global_window) == len(expected_gbk)
-    assert sorted(global_window) == expected_gbk
+    assert len(global_window) == len(expected)
+    assert sorted(global_window) == expected
 
+
+def _test_gbk(runner, collection, expected, tmpdir):
+    with test_pipeline.TestPipeline(runner=runner) as p:
+        pcoll = p | beam.Create(collection) | beam.GroupByKey()
+        pcoll | beam.Map(serialize_pcoll_elementwise_to_json, tmpdir=tmpdir)
+
+    assert_against_json_serialized_pcoll(tmpdir, expected)
+
+
+@pytest.mark.parametrize("collection, expected", params, ids=ids)
+@pytest.mark.parametrize("runner", runners, ids=runner_ids)
+def test_gbk_as_released(
+    runner,
+    collection: list[tuple],
+    expected: list[tuple],
+    tmp_path_factory: pytest.TempPathFactory,
+):
+    tmpdir = tmp_path_factory.mktemp("tmp")
+    _test_gbk(runner, collection, expected, tmpdir)
+
+
+@pytest.mark.parametrize("collection, expected", params, ids=ids)
+@pytest.mark.parametrize("runner", runners, ids=runner_ids)
+@patch(
+    "apache_beam.runners.dask.dask_runner.TRANSLATIONS",
+    TRANSLATIONS_WITH_UNPARTITIONED_DASK_BAG)
+def test_gbk_with_unpartitioned_dask_bag(
+    runner,
+    collection: list[tuple],
+    expected: list[tuple],
+    tmp_path_factory: pytest.TempPathFactory,
+):
+    tmpdir = tmp_path_factory.mktemp("tmp")
+    _test_gbk(runner, collection, expected, tmpdir)
