@@ -12,9 +12,14 @@ from apache_beam.runners.dask.transform_evaluator import Create as DaskCreate, O
 from apache_beam.testing import test_pipeline
 from apache_beam.testing.util import assert_that, equal_to
 
+# We will run each of the below tests against both Direct and Dask runners,
+# with the DirectRunner serving as a control case of expected behavior
 runners = ["DirectRunner", DaskRunner()]
 runner_ids = ["DirectRunner", "DaskRunner"]
 
+# Three collections of keyed data to initialize the pipelines with.
+# Each uses a different dtype as the key, and each is also paired with
+# the expected output after a GBK transform has been applied to it.
 str_keys = (
     [("a", 0), ("a", 1), ("b", 2), ("b", 3)],
     [("a", [0, 1]), ("b", [2, 3])],
@@ -27,16 +32,23 @@ none_keys = (
     [(None, 0), (None, 1), (None, 2), (None, 3)],
     [(None, [0, 1, 2, 3])],
 )
-params = [str_keys, int_keys, none_keys]
+collections = [str_keys, int_keys, none_keys]
 ids = ["str_keys", "int_keys", "none_keys"]
 
 
 class UnpartitionedCreate(DaskCreate):
+    """The DaskRunner GBK bug(s) demonstrated by this test module are (somehow)
+    related to the partitioning of the dask bag collection. The following
+    object is mocked into the DaskRunner in certain test cases below to
+    demonstrate that if the dask bag collection is unpartitioned (i.e., consists
+    of only a single partition), then the GBK bug(s) are resolved.
+    """
     def apply(self, input_bag: OpInput) -> db.Bag:
         partitioned = super().apply(input_bag)
         return partitioned.repartition(npartitions=1)
-    
 
+
+# For mocking
 TRANSLATIONS_WITH_UNPARTITIONED_DASK_BAG = TRANSLATIONS.copy()
 TRANSLATIONS_WITH_UNPARTITIONED_DASK_BAG[_Create] = UnpartitionedCreate
 
@@ -74,7 +86,7 @@ def tmpdir(tmp_path_factory: pytest.TempPathFactory):
     yield tmp_path_factory.mktemp("tmp")
 
 
-@pytest.mark.parametrize("collection, expected", params, ids=ids)
+@pytest.mark.parametrize("collection, expected", collections, ids=ids)
 @pytest.mark.parametrize("runner", runners, ids=runner_ids)
 def test_gbk_as_released(
     runner,
@@ -85,7 +97,7 @@ def test_gbk_as_released(
     _test_gbk(runner, collection, expected, tmpdir)
 
 
-@pytest.mark.parametrize("collection, expected", params, ids=ids)
+@pytest.mark.parametrize("collection, expected", collections, ids=ids)
 @pytest.mark.parametrize("runner", runners, ids=runner_ids)
 @patch(
     "apache_beam.runners.dask.dask_runner.TRANSLATIONS",
