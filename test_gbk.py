@@ -1,6 +1,7 @@
 import json
 import pathlib
 import secrets
+from typing import Literal
 from unittest.mock import patch
 
 import apache_beam as beam
@@ -77,14 +78,6 @@ class JSONSerializedAsserter:
         assert sorted(global_window) == expected
 
 
-def _test_gbk(runner, collection, expected, asserter: JSONSerializedAsserter):
-    with test_pipeline.TestPipeline(runner=runner) as p:
-        pcoll = p | beam.Create(collection) | beam.GroupByKey()
-        pcoll | beam.Map(asserter.serialize_pcoll_elementwise_to_json)
-
-    asserter.assert_against_json_serialized_pcoll(expected)
-
-
 @pytest.fixture
 def tmpdir(tmp_path_factory: pytest.TempPathFactory):
     yield tmp_path_factory.mktemp("tmp")
@@ -93,13 +86,18 @@ def tmpdir(tmp_path_factory: pytest.TempPathFactory):
 @pytest.mark.parametrize("collection, expected", collections, ids=ids)
 @pytest.mark.parametrize("runner", runners, ids=runner_ids)
 def test_gbk_as_released(
-    runner,
+    runner: Literal["DirectRunner"] | DaskRunner,
     collection: list[tuple],
     expected: list[tuple],
     tmpdir: pathlib.Path,
 ):
     asserter = JSONSerializedAsserter(tmpdir)
-    _test_gbk(runner, collection, expected, asserter)
+    with test_pipeline.TestPipeline(runner=runner) as p:
+        pcoll = p | beam.Create(collection) | beam.GroupByKey()
+        pcoll | beam.Map(asserter.serialize_pcoll_elementwise_to_json)
+
+    asserter.assert_against_json_serialized_pcoll(expected)
+
 
 
 @pytest.mark.parametrize("collection, expected", collections, ids=ids)
@@ -109,18 +107,23 @@ def test_gbk_as_released(
     TRANSLATIONS_WITH_UNPARTITIONED_DASK_BAG,
 )
 def test_gbk_with_unpartitioned_dask_bag(
-    runner,
+    runner: Literal["DirectRunner"] | DaskRunner,
     collection: list[tuple],
     expected: list[tuple],
     tmpdir: pathlib.Path,
 ):
     asserter = JSONSerializedAsserter(tmpdir)
-    _test_gbk(runner, collection, expected, asserter)
+    with test_pipeline.TestPipeline(runner=runner) as p:
+        pcoll = p | beam.Create(collection) | beam.GroupByKey()
+        pcoll | beam.Map(asserter.serialize_pcoll_elementwise_to_json)
+
+    asserter.assert_against_json_serialized_pcoll(expected)
+
 
 
 @pytest.mark.parametrize("runner", runners, ids=runner_ids)
 def test_beam_create(
-    runner,
+    runner: Literal["DirectRunner"] | DaskRunner,
     tmpdir: pathlib.Path,
 ):
     four_ints = [0, 1, 2, 3]
@@ -151,7 +154,7 @@ def test_assert_that_as_released(runner):
     "apache_beam.runners.dask.dask_runner.TRANSLATIONS",
     TRANSLATIONS_WITH_UNPARTITIONED_DASK_BAG,
 )
-def test_assert_that_with_unpartitioned_dask_bag(runner):
+def test_assert_that_with_unpartitioned_dask_bag(runner: Literal["DirectRunner"] | DaskRunner):
     with test_pipeline.TestPipeline(runner=runner) as p:
         pcoll = p | beam.Create([0, 1, 2, 3])
         assert_that(pcoll, equal_to([0, 1, 2, 3]))
