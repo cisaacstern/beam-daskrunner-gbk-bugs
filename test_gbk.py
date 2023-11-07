@@ -53,32 +53,36 @@ TRANSLATIONS_WITH_UNPARTITIONED_DASK_BAG = TRANSLATIONS.copy()
 TRANSLATIONS_WITH_UNPARTITIONED_DASK_BAG[_Create] = UnpartitionedCreate
 
 
-def serialize_pcoll_elementwise_to_json(element, tmpdir: pathlib.Path):
-    with (tmpdir / f"{secrets.token_hex(16)}.json").open(mode="w") as f:
-        json.dump(element, f)
+class JSONSerializedAsserter:
+
+    def __init__(self, tmpdir: pathlib.Path):
+        self.tmpdir = tmpdir
+
+    def serialize_pcoll_elementwise_to_json(self, element):
+        with (self.tmpdir / f"{secrets.token_hex(16)}.json").open(mode="w") as f:
+            json.dump(element, f)
+
+    def assert_against_json_serialized_pcoll(
+        self,
+        expected: list,
+        tuple_elements: bool = True,
+    ):
+        global_window = []
+        for fname in self.tmpdir.iterdir():
+            with open(fname) as f:
+                element = tuple(json.load(f)) if tuple_elements else json.load(f)
+                global_window.append(element)
+
+        assert len(global_window) == len(expected)
+        assert sorted(global_window) == expected
 
 
-def assert_against_json_serialized_pcoll(
-    tmpdir: pathlib.Path,
-    expected: list,
-    tuple_elements: bool = True,
-):
-    global_window = []
-    for fname in tmpdir.iterdir():
-        with open(fname) as f:
-            element = tuple(json.load(f)) if tuple_elements else json.load(f)
-            global_window.append(element)
-
-    assert len(global_window) == len(expected)
-    assert sorted(global_window) == expected
-
-
-def _test_gbk(runner, collection, expected, tmpdir):
+def _test_gbk(runner, collection, expected, asserter: JSONSerializedAsserter):
     with test_pipeline.TestPipeline(runner=runner) as p:
         pcoll = p | beam.Create(collection) | beam.GroupByKey()
-        pcoll | beam.Map(serialize_pcoll_elementwise_to_json, tmpdir=tmpdir)
+        pcoll | beam.Map(asserter.serialize_pcoll_elementwise_to_json)
 
-    assert_against_json_serialized_pcoll(tmpdir, expected)
+    asserter.assert_against_json_serialized_pcoll(expected)
 
 
 @pytest.fixture
@@ -94,7 +98,8 @@ def test_gbk_as_released(
     expected: list[tuple],
     tmpdir: pathlib.Path,
 ):
-    _test_gbk(runner, collection, expected, tmpdir)
+    asserter = JSONSerializedAsserter(tmpdir)
+    _test_gbk(runner, collection, expected, asserter)
 
 
 @pytest.mark.parametrize("collection, expected", collections, ids=ids)
@@ -109,7 +114,8 @@ def test_gbk_with_unpartitioned_dask_bag(
     expected: list[tuple],
     tmpdir: pathlib.Path,
 ):
-    _test_gbk(runner, collection, expected, tmpdir)
+    asserter = JSONSerializedAsserter(tmpdir)
+    _test_gbk(runner, collection, expected, asserter)
 
 
 @pytest.mark.parametrize("runner", runners, ids=runner_ids)
@@ -118,18 +124,19 @@ def test_beam_create(
     tmpdir: pathlib.Path,
 ):
     four_ints = [0, 1, 2, 3]
+    asserter = JSONSerializedAsserter(tmpdir)
+
     with test_pipeline.TestPipeline(runner=runner) as p:
         pcoll = p | beam.Create(four_ints)
-        pcoll | beam.Map(serialize_pcoll_elementwise_to_json, tmpdir=tmpdir)
+        pcoll | beam.Map(asserter.serialize_pcoll_elementwise_to_json)
 
     with pytest.raises(AssertionError):
-        assert_against_json_serialized_pcoll(
-            tmpdir,
+        asserter.assert_against_json_serialized_pcoll(
             expected=four_ints[:3],
             tuple_elements=False,
         )
 
-    assert_against_json_serialized_pcoll(tmpdir, expected=four_ints, tuple_elements=False)
+    asserter.assert_against_json_serialized_pcoll(expected=four_ints, tuple_elements=False)
 
 
 @pytest.mark.parametrize("runner", runners, ids=runner_ids)
