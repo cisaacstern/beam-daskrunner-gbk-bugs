@@ -28,8 +28,12 @@ def json_dump(element, tmpdir: pathlib.Path):
             [(0, 0), (0, 1), (1, 2), (1, 3)],
             [(0, [0, 1]), (1, [2, 3])],
         ),
+        (
+            [(None, 0), (None, 1), (None, 2), (None, 3)],
+            [(None, [0, 1, 2, 3])],
+        ),
     ],
-    ids=["str_keys", "int_keys"],
+    ids=["str_keys", "int_keys", "none_keys"],
 )
 @pytest.mark.parametrize("runner", runners, ids=runner_ids)
 def test_gbk(
@@ -47,5 +51,7 @@ def test_gbk(
     for fname in tmpdir.iterdir():
         with open(fname) as f:
             global_window.append(tuple(json.load(f)))
+
+    assert len(global_window) == len(expected_gbk)
     assert sorted(global_window) == expected_gbk
 

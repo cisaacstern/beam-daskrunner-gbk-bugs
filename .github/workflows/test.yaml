@@ -39,4 +39,4 @@ jobs:
            python -m pip list
        - name: 🏃 Run tests
          shell: bash -l {0}
-         run: pytest -vvv test_gbk.py
+         run: pytest -vvv test_gbk.py --disable-pytest-warnings
