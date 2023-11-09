@@ -1,0 +1,42 @@
+name: Test DaskRunner GBK
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+env:
+  PYTEST_ADDOPTS: "--color=yes"
+
+jobs:
+   test:
+     name: beam@${{ matrix.beam-version }}
+     runs-on: "ubuntu-latest"
+     strategy:
+       fail-fast: false
+       matrix:
+         python-version: ["3.10"]
+         beam-version: ["2.51.0"]
+     steps:
+       - name: 🛍️ Checkout
+         uses: actions/checkout@v4
+       - name: 🔁 Set up Python ${{ matrix.python-version }}
+         uses: actions/setup-python@v3
+         with:
+           python-version: ${{ matrix.python-version }}
+       - name: 🐝 Install beam@${{ matrix.beam-version }}
+         shell: bash -l {0}
+         run: |
+            python -m pip install --upgrade pip
+            echo installing beam@${{ matrix.beam-version }}
+            python -m pip install "apache-beam==${{ matrix.beam-version }}"
+            python -m pip install -U "git+https://github.com/dask/distributed@2022.6.0"
+            python -m pip install pytest
+       - name: 🐍 List env
+         shell: bash -l {0}
+         run: |
+           python -m pip list
+       - name: 🏃 Run tests
+         shell: bash -l {0}
+         run: pytest -vvv test_gbk.py --disable-pytest-warnings
